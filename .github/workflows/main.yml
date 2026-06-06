@@ -6,6 +6,7 @@ on:
 jobs:
   extract:
     runs-on: ubuntu-latest
+
     env:
       MODEL: SM-A528B
       REGION: XEO
@@ -27,7 +28,7 @@ jobs:
       - name: Get latest firmware version
         id: get_version
         run: |
-          FW_VER=$(samloader -m "$MODEL" -r "$REGION" check-updates | grep -oP 'Latest version: \K.*')
+          FW_VER=$(samloader -m "$MODEL" -r "$REGION" checkupdate | grep -oE '[A-Z0-9]{5,}' | head -1)
           echo "Firmware version: $FW_VER"
           echo "fw_ver=$FW_VER" >> $GITHUB_OUTPUT
 
