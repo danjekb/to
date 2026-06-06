@@ -21,7 +21,8 @@ jobs:
             python3-pip unzip p7zip-full lz4 \
             android-sdk-libsparse-utils \
             e2fsprogs file
-          pip3 install bifrost samloader
+          pip3 install bifrost
+          pip3 install git+https://github.com/ncatg/samloader.git
 
       - name: Get latest firmware version
         id: get_version
