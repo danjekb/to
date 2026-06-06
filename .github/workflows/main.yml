@@ -1,12 +1,7 @@
-name: Samsung FULL firmware build.prop dumper
+name: dump-firmware
 
 on:
   workflow_dispatch:
-    inputs:
-      csc:
-        description: "CSC (XEO, EUX, DBT)"
-        required: true
-        default: "XEO"
 
 jobs:
   dump:
@@ -14,6 +9,7 @@ jobs:
 
     env:
       MODEL: SM-A528B
+      REGION: XEO
 
     steps:
       - name: Checkout
@@ -28,105 +24,87 @@ jobs:
             p7zip-full \
             lz4 \
             erofs-utils \
-            e2fsprogs \
             android-sdk-libsparse-utils \
-            file
+            file \
+            git
 
-          pip install git+https://github.com/MatrixEditor/samloader3.git
+          pip install git+https://github.com/ncatg/samloader.git
 
       - name: Get firmware version
         id: fw
         run: |
-          VERSION=$(python3 -m samloader3 \
-            --model "$MODEL" \
-            --region "${{ github.event.inputs.csc }}" \
-            checkupdate | tail -n1)
-
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          VERSION=$(samloader -m "$MODEL" -r "$REGION" checkupdate | tail -n 1)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Firmware: $VERSION"
 
       - name: Download firmware
         run: |
-          mkdir fw
+          mkdir -p fw
 
-          python3 -m samloader3 \
-            --model "$MODEL" \
-            --region "${{ github.event.inputs.csc }}" \
-            download \
-            --firmware-version "${{ steps.fw.outputs.version }}" \
-            --output fw
+          VERSION="${{ steps.fw.outputs.version }}"
 
-      - name: Extract firmware
+          samloader -m "$MODEL" -r "$REGION" download -v "$VERSION" -O fw
+
+      - name: Extract firmware archives
         run: |
-          mkdir extracted
+          mkdir -p extracted
 
-          ZIP=$(find fw -name "*.zip" | head -n1)
-          unzip "$ZIP" -d extracted
+          echo "Searching firmware files..."
 
-          AP=$(find extracted -name "AP*.tar.md5" | head -n1)
-          mkdir ap
-          tar -xf "$AP" -C ap
+          find fw -type f | while read f; do
+            echo "Processing: $f"
 
-      - name: Decompress super.img
+            case "$f" in
+              *.zip)
+                echo "Unzipping $f"
+                unzip -o "$f" -d extracted
+                ;;
+              *.tar.md5|*.tar)
+                echo "Extracting tar $f"
+                tar -xf "$f" -C extracted
+                ;;
+              *.lz4)
+                echo "Decompressing lz4 $f"
+                lz4 -d "$f" "${f%.lz4}"
+                ;;
+              *.img)
+                echo "Found image $f"
+                cp "$f" extracted/
+                ;;
+            esac
+          done
+
+      - name: Extract system & product images
         run: |
-          SUPER=$(find ap -name "super.img.lz4" | head -n1)
-          lz4 -d "$SUPER" super.img
+          mkdir -p mount/system mount/product
 
-      - name: Extract partitions
+          find extracted -type f \( -name "*system*.img" -o -name "*super*.img" \) | while read img; do
+            echo "Extracting system image: $img"
+            mkdir -p tmp_sys
+            file "$img"
+
+            # próbujemy mount erofs/ext4
+            sudo mount -o loop "$img" mount/system 2>/dev/null || true
+          done
+
+          find extracted -type f -name "*product*.img" | while read img; do
+            echo "Extracting product image: $img"
+            sudo mount -o loop "$img" mount/product 2>/dev/null || true
+          done
+
+      - name: Copy build.prop files
         run: |
-          mkdir partitions
-          lpunpack super.img partitions
-          ls -lah partitions
+          mkdir -p output
 
-      - name: Dump all build.prop files
-        run: |
-          mkdir -p out work
+          echo "Collecting build.prop..."
 
-          dump_partition() {
-            PART=$1
+          find mount/system mount/product -type f -name "build.prop" 2>/dev/null | while read f; do
+            echo "Found: $f"
+            cp "$f" output/$(echo "$f" | tr '/' '_')
+          done
 
-            IMG=$(find partitions -type f | grep -E "$PART.*\.img$" | head -n1)
-
-            if [ -z "$IMG" ]; then
-              echo "Skipping $PART (not found)"
-              return
-            fi
-
-            echo "=== $PART => $IMG ==="
-
-            rm -rf "work/$PART"
-            mkdir -p "work/$PART"
-
-            TYPE=$(file "$IMG")
-
-            if echo "$TYPE" | grep -qi "EROFS"; then
-              echo "EROFS detected"
-              7z x "$IMG" -o"work/$PART" >/dev/null || true
-            else
-              echo "EXT detected"
-              sudo mount -o loop,ro "$IMG" "work/$PART" || return
-            fi
-
-            find "work/$PART" -name build.prop | while read f; do
-              NAME=$(echo "$f" | sed 's|work/||g' | tr '/' '_')
-              cp "$f" "out/${PART}_${NAME}.prop"
-            done
-
-            sudo umount "work/$PART" 2>/dev/null || true
-          }
-
-          dump_partition system
-          dump_partition product
-          dump_partition system_ext
-          dump_partition vendor
-          dump_partition odm
-          dump_partition odm_dlkm
-
-          echo "=== RESULT ==="
-          ls -lah out
-
-      - name: Upload results
+      - name: Upload build.prop
         uses: actions/upload-artifact@v4
         with:
-          name: samsung-buildprop-full
-          path: out
+          name: build-props-${{ env.MODEL }}
+          path: output
