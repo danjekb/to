@@ -1,15 +1,15 @@
-name: Extract Samsung build.prop
+name: Samsung FULL firmware build.prop dumper
 
 on:
   workflow_dispatch:
     inputs:
       csc:
-        description: "CSC region (XEO, EUX, DBT)"
+        description: "CSC (XEO, EUX, DBT)"
         required: true
         default: "XEO"
 
 jobs:
-  extract:
+  dump:
     runs-on: ubuntu-latest
 
     env:
@@ -19,10 +19,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install tools
         run: |
           sudo apt update
-
           sudo apt install -y \
             python3-pip \
             unzip \
@@ -30,15 +29,12 @@ jobs:
             lz4 \
             erofs-utils \
             e2fsprogs \
+            android-sdk-libsparse-utils \
             file
 
-          python3 -m pip install --upgrade pip
+          pip install git+https://github.com/MatrixEditor/samloader3.git
 
-          pip install \
-            git+https://github.com/MatrixEditor/samloader3.git \
-            lpunpack
-
-      - name: Get latest firmware version
+      - name: Get firmware version
         id: fw
         run: |
           VERSION=$(python3 -m samloader3 \
@@ -47,123 +43,90 @@ jobs:
             checkupdate | tail -n1)
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Firmware version: $VERSION"
+          echo "Firmware: $VERSION"
 
       - name: Download firmware
         run: |
-          mkdir firmware
+          mkdir fw
 
           python3 -m samloader3 \
             --model "$MODEL" \
             --region "${{ github.event.inputs.csc }}" \
             download \
             --firmware-version "${{ steps.fw.outputs.version }}" \
-            --output firmware
+            --output fw
 
       - name: Extract firmware
         run: |
           mkdir extracted
 
-          ZIP=$(find firmware -type f -name "*.zip" | head -n1)
-
-          if [ -z "$ZIP" ]; then
-            echo "Firmware ZIP not found"
-            exit 1
-          fi
-
+          ZIP=$(find fw -name "*.zip" | head -n1)
           unzip "$ZIP" -d extracted
 
-          AP=$(find extracted -type f -name "AP*.tar.md5" | head -n1)
-
-          if [ -z "$AP" ]; then
-            echo "AP archive not found"
-            exit 1
-          fi
-
+          AP=$(find extracted -name "AP*.tar.md5" | head -n1)
           mkdir ap
           tar -xf "$AP" -C ap
 
       - name: Decompress super.img
         run: |
-          SUPER=$(find ap -type f -name "super.img.lz4" | head -n1)
-
-          if [ -z "$SUPER" ]; then
-            echo "super.img.lz4 not found"
-            exit 1
-          fi
-
-          echo "Using $SUPER"
-
+          SUPER=$(find ap -name "super.img.lz4" | head -n1)
           lz4 -d "$SUPER" super.img
-
-          ls -lh super.img
 
       - name: Extract partitions
         run: |
           mkdir partitions
-
-          python3 -m lpunpack super.img partitions
-
-          echo "=== PARTITIONS ==="
+          lpunpack super.img partitions
           ls -lah partitions
 
-      - name: Extract build.prop
+      - name: Dump all build.prop files
         run: |
-          mkdir -p out
-          mkdir -p work
+          mkdir -p out work
 
-          extract_prop() {
+          dump_partition() {
             PART=$1
 
-            echo "Searching for $PART..."
-
-            IMG=$(find partitions -type f | grep -E "/${PART}(_a)?(\.ext)?\.img$" | head -n1)
+            IMG=$(find partitions -type f | grep -E "$PART.*\.img$" | head -n1)
 
             if [ -z "$IMG" ]; then
-              echo "$PART image not found"
+              echo "Skipping $PART (not found)"
               return
             fi
 
-            echo "Found image: $IMG"
+            echo "=== $PART => $IMG ==="
 
-            TYPE=$(file "$IMG")
-            echo "$TYPE"
-
+            rm -rf "work/$PART"
             mkdir -p "work/$PART"
 
-            # Try mount first (EXT4)
-            if sudo mount -o ro,loop "$IMG" "work/$PART" 2>/dev/null; then
-              echo "Mounted as EXT filesystem"
+            TYPE=$(file "$IMG")
 
-            else
-              echo "Mount failed, trying EROFS extraction"
-
+            if echo "$TYPE" | grep -qi "EROFS"; then
+              echo "EROFS detected"
               7z x "$IMG" -o"work/$PART" >/dev/null || true
-            fi
-
-            echo "Searching build.prop..."
-
-            PROP=$(find "work/$PART" -name build.prop | head -n1)
-
-            if [ -n "$PROP" ] && [ -f "$PROP" ]; then
-              cp "$PROP" "out/${PART}-build.prop"
-              echo "Saved: out/${PART}-build.prop"
             else
-              echo "build.prop not found in $PART"
+              echo "EXT detected"
+              sudo mount -o loop,ro "$IMG" "work/$PART" || return
             fi
+
+            find "work/$PART" -name build.prop | while read f; do
+              NAME=$(echo "$f" | sed 's|work/||g' | tr '/' '_')
+              cp "$f" "out/${PART}_${NAME}.prop"
+            done
 
             sudo umount "work/$PART" 2>/dev/null || true
           }
 
-          extract_prop system
-          extract_prop product
+          dump_partition system
+          dump_partition product
+          dump_partition system_ext
+          dump_partition vendor
+          dump_partition odm
+          dump_partition odm_dlkm
 
-          echo "=== OUTPUT FILES ==="
-          ls -lah out || true
+          echo "=== RESULT ==="
+          ls -lah out
 
-      - name: Upload artifacts
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: samsung-build-props
-          path: out/
-          if-no-files-found: warn
+          name: samsung-buildprop-full
+          path: out
