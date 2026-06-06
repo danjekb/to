@@ -6,11 +6,9 @@ on:
 jobs:
   extract:
     runs-on: ubuntu-latest
-
     env:
       MODEL: SM-A528B
       REGION: XEO
-      IMEI: 354471463139951
 
     steps:
       - name: Checkout
@@ -23,7 +21,7 @@ jobs:
             python3-pip unzip p7zip-full lz4 \
             android-sdk-libsparse-utils \
             e2fsprogs file
-          pip3 install git+https://github.com/ncatg/samloader.git
+          pip3 install bifrost samloader
 
       - name: Get latest firmware version
         id: get_version
@@ -32,10 +30,10 @@ jobs:
           echo "Firmware version: $FW_VER"
           echo "fw_ver=$FW_VER" >> $GITHUB_OUTPUT
 
-      - name: Download firmware (XEO)
+      - name: Download firmware with bifrost
         run: |
           mkdir -p fw
-          samloader -m "$MODEL" -r "$REGION" -i "$IMEI" download -v "${{ steps.get_version.outputs.fw_ver }}" -O fw
+          bifrost -m "$MODEL" -r "$REGION" -v "${{ steps.get_version.outputs.fw_ver }}" -o fw
 
       - name: Unpack firmware zip
         run: |
@@ -51,10 +49,9 @@ jobs:
           tar -xf "$AP" -C ap
 
       - name: Prepare extraction workspace
-        run: |
-          mkdir -p out/system out/product out/vendor
+        run: mkdir -p out/system out/product out/vendor
 
-      - name: Handle super.img (correct pipeline)
+      - name: Handle super.img
         run: |
           cd fw/ap
           if [ -f super.img.lz4 ]; then
@@ -67,9 +64,8 @@ jobs:
             lpunpack super_raw.img ../super_out
           fi
 
-      - name: Extract system/product/vendor build.prop
+      - name: Extract build.prop files
         run: |
-          sudo mkdir -p mnt_sys mnt_prod mnt_ven
           extract_prop () {
             IMG=$1
             MNT=$2
@@ -80,6 +76,7 @@ jobs:
               sudo umount "$MNT"
             fi
           }
+          sudo mkdir -p mnt_sys mnt_prod mnt_ven
           extract_prop fw/super_out/system.img out/system
           extract_prop fw/super_out/product.img out/product
           extract_prop fw/super_out/vendor.img out/vendor
