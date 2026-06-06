@@ -1,4 +1,4 @@
-name: Samsung XEO Gold Extractor FINAL
+name: Gold Standard Firmware Extractor (XEO)
 
 on:
   workflow_dispatch:
@@ -22,138 +22,80 @@ jobs:
           sudo apt-get install -y \
             python3-pip unzip p7zip-full lz4 \
             android-sdk-libsparse-utils \
-            simg2img file tar
+            e2fsprogs file
 
-          pip install git+https://github.com/MatrixEditor/samloader3.git
+          pip3 install git+https://github.com/ncatg/samloader.git
 
-      - name: Get firmware version
-        run: |
-          FW=$(python3 -m samloader3 \
-            --model "$MODEL" \
-            --region "$REGION" \
-            --imei "$IMEI" \
-            checkupdate | tail -n1)
-
-          echo "FW=$FW" >> $GITHUB_ENV
-          echo "Firmware: $FW"
-
-      - name: Download firmware
+      - name: Download firmware (XEO)
         run: |
           mkdir -p fw
+          samloader -m "$MODEL" -r "$REGION" -i "$IMEI" download -O fw
 
-          python3 -m samloader3 \
-            --model "$MODEL" \
-            --region "$REGION" \
-            --imei "$IMEI" \
-            download \
-            --firmware-version "$FW" \
-            --output fw
-
-      - name: Unpack firmware archive
+      - name: Unpack firmware zip
         run: |
-          mkdir -p work
+          cd fw
+          unzip "*.zip" || true
+          ls -lah
 
-          FILE=$(find fw -type f \( -name "*.zip" -o -name "*.tar.md5" \) | head -n1)
-
-          echo "Archive: $FILE"
-
-          if [[ "$FILE" == *.zip ]]; then
-            unzip -o "$FILE" -d work
-          else
-            tar -xf "$FILE" -C work
-          fi
-
-      - name: Extract AP
+      - name: Extract AP tar
         run: |
-          mkdir -p ap
-
-          AP=$(find work -name "AP*.tar.md5" | head -n1)
-          echo "AP: $AP"
-
+          cd fw
+          AP=$(find . -name "AP*.tar*" | head -n 1)
+          mkdir ap
           tar -xf "$AP" -C ap
 
-      # =========================
-      # SUPER PIPELINE
-      # =========================
-      - name: Extract SUPER → partitions
+      - name: Prepare extraction workspace
         run: |
-          mkdir -p super super_out extracted
+          mkdir -p out/system out/product out/vendor
 
-          SUPER=$(find ap -name "super.img.lz4" | head -n1)
+      - name: Handle super.img (correct pipeline)
+        run: |
+          cd fw/ap
 
-          echo "SUPER: $SUPER"
-
-          if [[ -f "$SUPER" ]]; then
-            echo "[1] decompress lz4"
-            lz4 -d "$SUPER" super/super.img
-
-            echo "[2] sparse → raw"
-            simg2img super/super.img super/super.raw.img || cp super/super.img super/super.raw.img
-
-            echo "[3] lpunpack"
-            lpunpack super/super.raw.img super_out
+          if [ -f super.img.lz4 ]; then
+            lz4 -d super.img.lz4 super.img
           fi
 
-          ls -lah super_out
+          if [ -f super.img ]; then
+            simg2img super.img super_raw.img || mv super.img super_raw.img
+          fi
 
-      - name: Collect partitions
+          if [ -f super_raw.img ]; then
+            lpunpack super_raw.img ../super_out
+          fi
+
+      - name: Extract system/product/vendor build.prop
         run: |
-          mkdir -p extracted
+          sudo mkdir -p mnt_sys mnt_prod mnt_ven
 
-          cp super_out/system.img extracted/ 2>/dev/null || true
-          cp super_out/product.img extracted/ 2>/dev/null || true
-          cp super_out/vendor.img extracted/ 2>/dev/null || true
-          cp super_out/system_ext.img extracted/ 2>/dev/null || true
+          extract_prop () {
+            IMG=$1
+            MNT=$2
+            OUT=$3
 
-          echo "Partitions ready:"
-          ls -lah extracted
-
-      # =========================
-      # BUILD.PROP HARVEST (NO MOUNT)
-      # =========================
-      - name: Extract build.prop
-        run: |
-          mkdir -p props
-
-          for img in extracted/*.img; do
-            [ -f "$img" ] || continue
-
-            name=$(basename "$img" .img)
-            echo "Scanning $name"
-
-            mkdir -p tmp_$name
-
-            if file "$img" | grep -q "Android sparse"; then
-              simg2img "$img" tmp_$name/raw.img
-            else
-              cp "$img" tmp_$name/raw.img
+            if [ -f "$IMG" ]; then
+              sudo mount -o loop,ro "$IMG" "$MNT"
+              sudo find "$MNT" -name build.prop -exec cp {} "$OUT/" \;
+              sudo umount "$MNT"
             fi
+          }
 
-            mkdir -p tmp_$name/fs
+          extract_prop fw/super_out/system.img out/system
+          extract_prop fw/super_out/product.img out/product
+          extract_prop fw/super_out/vendor.img out/vendor
 
-            7z x tmp_$name/raw.img -otmp_$name/fs >/dev/null 2>&1 || true
-
-            find tmp_$name/fs -type f -name "build.prop" \
-              -exec cp {} props/${name}_build.prop \; || true
-          done
-
-      # =========================
-      # ARTIFACTS (🍯 FINAL OUTPUT)
-      # =========================
-      - name: Prepare artifact bundle
+      - name: Collect results
         run: |
-          mkdir -p artifact
-          cp -r props artifact/
+          mkdir -p artifacts
 
-          echo "Firmware: $FW" > artifact/info.txt
-          echo "Model: $MODEL" >> artifact/info.txt
-          echo "Region: $REGION" >> artifact/info.txt
+          cp -r out/system artifacts/ || true
+          cp -r out/product artifacts/ || true
+          cp -r out/vendor artifacts/ || true
 
-          echo "Build.prop files:"
-          ls -lah props || true
+          echo "DONE: build.prop extracted" > artifacts/info.txt
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: samsung-xeo-${{ env.FW }}
-          path: artifact/
+          name: build-prop-xeo
+          path: artifacts
