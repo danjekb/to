@@ -19,7 +19,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cpio python3 wget
+        sudo apt-get install -y cpio python3 curl
 
     - name: Download and Setup AIK
       run: |
@@ -29,13 +29,13 @@ jobs:
         git clone https://github.com/SebaUbuntu/AIK-Linux-Mirror.git .
         chmod +x *.sh
         
-        # Pobieranie vendor_boot.img z podanego linku
+        # Pobieranie vendor_boot.img za pomocą curl
         echo "Pobieram plik z: ${{ github.event.inputs.download_url }}"
-        wget -O vendor_boot.img "${{ github.event.inputs.download_url }}"
+        curl -L -o vendor_boot.img "${{ github.event.inputs.download_url }}"
         
-        # Szybki check czy plik się pobrał i nie jest pusty
+        # Szybki check czy plik nie jest pusty
         if [ ! -s "vendor_boot.img" ]; then
-          echo "BŁĄD: Nie udało się pobrać pliku lub plik jest pusty! Upewnij się, że link jest bezpośredni."
+          echo "BŁĄD: Plik jest pusty lub nie udało się go pobrać!"
           exit 1
         fi
 
@@ -47,6 +47,9 @@ jobs:
     - name: Modify FSTAB (EROFS to EXT4)
       run: |
         cd AIK/ramdisk
+        # POPRAWKA: Nadajemy pełne uprawnienia do zapisu, żeby sed nie wywalał "Permission denied"
+        chmod -R 777 .
+        
         # Szukamy fstab w ramdisku Samsunga (fstab.qcom lub fstab.emmc)
         FSTAB_FILE=$(find . -name "fstab.*" | head -n 1)
         if [ -z "$FSTAB_FILE" ]; then
