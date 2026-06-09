@@ -1,0 +1,74 @@
+name: Repack Vendor Boot (EROFS to EXT4) - A52s 5G
+
+on:
+  workflow_dispatch:
+
+jobs:
+  repack:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cpio python3
+
+    - name: Download and Setup AIK
+      run: |
+        mkdir AIK
+        cd AIK
+        # Pobieramy skrypty AIK z działającego mirroru
+        git clone https://github.com/SebaUbuntu/AIK-Linux-Mirror.git .
+        chmod +x *.sh
+        
+        # Sprawdzamy czy plik vendor_boot.img istnieje w repozytorium
+        if [ -f "../vendor_boot.img" ]; then
+          cp ../vendor_boot.img ./boot.img
+        else
+          echo "BŁĄD: Nie znaleziono pliku vendor_boot.img w głównym katalogu repozytorium!"
+          exit 1
+        fi
+
+    - name: Unpack Vendor Boot Image
+      run: |
+        cd AIK
+        ./unpackimg.sh boot.img
+
+    - name: Modify FSTAB (EROFS to EXT4)
+      run: |
+        cd AIK/ramdisk
+        # Szukamy fstab w ramdisku Samsunga (często fstab.qcom lub fstab.emmc)
+        FSTAB_FILE=$(find . -name "fstab.*" | head -n 1)
+        if [ -z "$FSTAB_FILE" ]; then
+          FSTAB_FILE=$(find . -name "fstab" | head -n 1)
+        fi
+        
+        if [ ! -z "$FSTAB_FILE" ]; then
+          echo "Znaleziono fstab: $FSTAB_FILE. Podmieniam EROFS na EXT4..."
+          
+          # Zmiana systemów plików w tekście
+          sed -i 's/\terofs\t/\text4\t/g' "$FSTAB_FILE"
+          sed -i 's/ erofs / ext4 /g' "$FSTAB_FILE"
+          
+          echo "=== PODGLĄD ZMODYFIKOWANEGO FSTAB ==="
+          cat "$FSTAB_FILE"
+          echo "====================================="
+        else
+          echo "BŁĄD: Nie znaleziono pliku fstab w ramdisku vendor_boot!"
+          exit 1
+        fi
+
+    - name: Repack Vendor Boot Image
+      run: |
+        cd AIK
+        ./repackimg.sh
+        mv image-new.img ../vendor_boot_ext4.img
+
+    - name: Upload Finished Vendor Boot
+      uses: actions/upload-artifact@v4
+      with:
+        name: vendor_boot-ext4-modified
+        path: vendor_boot_ext4.img
