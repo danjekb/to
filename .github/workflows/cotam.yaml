@@ -1,7 +1,12 @@
-name: Repack Vendor Boot (EROFS to EXT4) - A52s 5G
+name: Repack Vendor Boot (EROFS to EXT4) - z Linku
 
 on:
   workflow_dispatch:
+    inputs:
+      download_url:
+        description: 'Wklej bezpośredni link do pliku vendor_boot.img'
+        required: true
+        type: string
 
 jobs:
   repack:
@@ -14,7 +19,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cpio python3
+        sudo apt-get install -y cpio python3 wget
 
     - name: Download and Setup AIK
       run: |
@@ -24,23 +29,25 @@ jobs:
         git clone https://github.com/SebaUbuntu/AIK-Linux-Mirror.git .
         chmod +x *.sh
         
-        # Sprawdzamy czy plik vendor_boot.img istnieje w repozytorium
-        if [ -f "../vendor_boot.img" ]; then
-          cp ../vendor_boot.img ./boot.img
-        else
-          echo "BŁĄD: Nie znaleziono pliku vendor_boot.img w głównym katalogu repozytorium!"
+        # Pobieranie vendor_boot.img z podanego linku
+        echo "Pobieram plik z: ${{ github.event.inputs.download_url }}"
+        wget -O vendor_boot.img "${{ github.event.inputs.download_url }}"
+        
+        # Szybki check czy plik się pobrał i nie jest pusty
+        if [ ! -s "vendor_boot.img" ]; then
+          echo "BŁĄD: Nie udało się pobrać pliku lub plik jest pusty! Upewnij się, że link jest bezpośredni."
           exit 1
         fi
 
     - name: Unpack Vendor Boot Image
       run: |
         cd AIK
-        ./unpackimg.sh boot.img
+        ./unpackimg.sh vendor_boot.img
 
     - name: Modify FSTAB (EROFS to EXT4)
       run: |
         cd AIK/ramdisk
-        # Szukamy fstab w ramdisku Samsunga (często fstab.qcom lub fstab.emmc)
+        # Szukamy fstab w ramdisku Samsunga (fstab.qcom lub fstab.emmc)
         FSTAB_FILE=$(find . -name "fstab.*" | head -n 1)
         if [ -z "$FSTAB_FILE" ]; then
           FSTAB_FILE=$(find . -name "fstab" | head -n 1)
