@@ -47,24 +47,25 @@ jobs:
     - name: Modify FSTAB (EROFS to EXT4)
       run: |
         cd AIK/ramdisk
-        # POPRAWKA: Nadajemy pełne uprawnienia do zapisu, żeby sed nie wywalał "Permission denied"
-        chmod -R 777 .
         
         # Szukamy fstab w ramdisku Samsunga (fstab.qcom lub fstab.emmc)
-        FSTAB_FILE=$(find . -name "fstab.*" | head -n 1)
+        FSTAB_FILE=$(sudo find . -name "fstab.*" | head -n 1)
         if [ -z "$FSTAB_FILE" ]; then
-          FSTAB_FILE=$(find . -name "fstab" | head -n 1)
+          FSTAB_FILE=$(sudo find . -name "fstab" | head -n 1)
         fi
         
         if [ ! -z "$FSTAB_FILE" ]; then
-          echo "Znaleziono fstab: $FSTAB_FILE. Podmieniam EROFS na EXT4..."
+          echo "Znaleziono fstab: $FSTAB_FILE. Podmieniam EROFS na EXT4 za pomocą sudo..."
           
-          # Zmiana systemów plików w tekście
-          sed -i 's/\terofs\t/\text4\t/g' "$FSTAB_FILE"
-          sed -i 's/ erofs / ext4 /g' "$FSTAB_FILE"
+          # Wymuszamy pełne uprawnienia przez sudo dla tego konkretnego pliku fstab
+          sudo chmod 777 "$FSTAB_FILE"
+          
+          # Zmiana systemów plików w tekście przy użyciu sudo
+          sudo sed -i 's/\terofs\t/\text4\t/g' "$FSTAB_FILE"
+          sudo sed -i 's/ erofs / ext4 /g' "$FSTAB_FILE"
           
           echo "=== PODGLĄD ZMODYFIKOWANEGO FSTAB ==="
-          cat "$FSTAB_FILE"
+          sudo cat "$FSTAB_FILE"
           echo "====================================="
         else
           echo "BŁĄD: Nie znaleziono pliku fstab w ramdisku vendor_boot!"
