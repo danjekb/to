@@ -1,4 +1,4 @@
-name: Apply smali patch (no resources rebuild)
+name: Apply smali patch (dex replacement)
 
 on:
   workflow_dispatch:
@@ -38,7 +38,7 @@ jobs:
             cp "${{ github.event.inputs.apk_path }}" input.apk
           fi
 
-      - name: Extract APK (unzip)
+      - name: Extract original APK contents
         run: |
           mkdir apk_contents
           unzip input.apk -d apk_contents
@@ -51,7 +51,7 @@ jobs:
           wget https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar
           sudo mv apktool_2.12.1.jar /usr/local/bin/apktool.jar
 
-      - name: Decompile APK (to get smali)
+      - name: Decompile APK to smali
         run: |
           apktool d input.apk -o decompiled
 
@@ -61,26 +61,27 @@ jobs:
           patch -p1 --dry-run < ../0001-apply-sub-override.patch
           patch -p1 < ../0001-apply-sub-override.patch
 
-      - name: Download smali/baksmali jar
+      - name: Download smali/baksmali
         run: |
-          wget https://github.com/google/smali/releases/download/v3.0.9/smali-3.0.9.jar
-          wget https://github.com/google/smali/releases/download/v3.0.9/baksmali-3.0.9.jar
+          wget https://github.com/baksmali/smali/releases/download/3.0.9/smali-3.0.9.jar
+          wget https://github.com/baksmali/smali/releases/download/3.0.9/baksmali-3.0.9.jar
 
-      - name: Recompile only smali to dex
+      - name: Recompile changed smali to dex and replace in APK contents
         run: |
-          # Dla każdego folderu smali* (smali, smali_classes2, itd.) kompilujemy osobno
           for smali_dir in decompiled/smali*; do
             if [ -d "$smali_dir" ]; then
-              out_dex="classes$(echo $smali_dir | sed 's/.*smali_?//').dex"
-              [ "$smali_dir" = "decompiled/smali" ] && out_dex="classes.dex"
-              echo "Compiling $smali_dir to $out_dex"
-              java -jar smali-3.0.9.jar assemble "$smali_dir" -o "$out_dex"
-              # Zastąp plik w rozpakowanym APK
-              if [ -f "apk_contents/$out_dex" ]; then
-                cp "$out_dex" "apk_contents/$out_dex"
+              if [ "$smali_dir" = "decompiled/smali" ]; then
+                dex_name="classes.dex"
               else
-                # Jeśli dex nie istniał (nowy), po prostu dodajemy
-                cp "$out_dex" "apk_contents/$out_dex"
+                num=$(echo "$smali_dir" | sed 's/.*smali_?//')
+                dex_name="classes${num}.dex"
+              fi
+              echo "Compiling $smali_dir -> $dex_name"
+              java -jar smali-3.0.9.jar assemble "$smali_dir" -o "$dex_name"
+              if [ -f "apk_contents/$dex_name" ]; then
+                cp "$dex_name" "apk_contents/$dex_name"
+              else
+                cp "$dex_name" "apk_contents/$dex_name"
               fi
             fi
           done
