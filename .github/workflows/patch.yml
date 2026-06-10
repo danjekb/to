@@ -30,13 +30,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget unzip patch
 
-      - name: Download apktool (version 3.0.2)
+      - name: Download apktool 2.12.1 (supports --no-res)
         run: |
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
           chmod +x apktool
           sudo mv apktool /usr/local/bin/
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
-          sudo mv apktool_3.0.2.jar /usr/local/bin/apktool.jar
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar
+          sudo mv apktool_2.12.1.jar /usr/local/bin/apktool.jar
 
       - name: Get APK file
         run: |
@@ -58,7 +58,7 @@ jobs:
 
       - name: Rebuild APK (skip resources)
         run: |
-          # Usunięto --use-aapt2 – opcja nie istnieje w apktool 3.0.2
+          # --no-res działa w apktool 2.x – pomija kompilację zasobów
           apktool b decompiled -o unsigned.apk --no-res
 
       - name: Install apksigner (Android build tools)
