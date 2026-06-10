@@ -30,15 +30,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget unzip patch
 
-      - name: Download apktool (fixed version 2.11.2)
+      - name: Download apktool (version 3.0.2)
         run: |
-          # Pobierz skrypt apktool
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
           chmod +x apktool
           sudo mv apktool /usr/local/bin/
-          # Użyj sprawdzonej wersji JAR
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.11.2/apktool_2.11.2.jar
-          sudo mv apktool_2.11.2.jar /usr/local/bin/apktool.jar
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v3.0.2/apktool_3.0.2.jar
+          sudo mv apktool_3.0.2.jar /usr/local/bin/apktool.jar
 
       - name: Get APK file
         run: |
@@ -55,14 +53,11 @@ jobs:
       - name: Apply smali patch
         run: |
           cd decompiled
-          # Najpierw testowa aplikacja (dry-run)
           patch -p1 --dry-run < ../0001-apply-sub-override.patch
-          # Właściwa aplikacja
           patch -p1 < ../0001-apply-sub-override.patch
 
       - name: Rebuild APK (skip resources)
         run: |
-          # --no-res pomija kompilację zasobów – bezpieczne, bo patch zmienia tylko smali
           apktool b decompiled -o unsigned.apk --use-aapt2 --no-res
 
       - name: Install apksigner (Android build tools)
