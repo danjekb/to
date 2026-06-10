@@ -1,4 +1,4 @@
-name: Apply smali patch to APK (skip resources)
+name: Apply smali patch (legacy apktool with --no-res)
 
 on:
   workflow_dispatch:
@@ -30,13 +30,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget unzip patch
 
-      - name: Download apktool 2.12.1 (supports --no-res)
+      - name: Download apktool 2.4.0 (supports --no-res)
         run: |
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
           chmod +x apktool
           sudo mv apktool /usr/local/bin/
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar
-          sudo mv apktool_2.12.1.jar /usr/local/bin/apktool.jar
+          # Użyj wersji 2.4.0 – ostatnia z działającym --no-res
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.4.0/apktool_2.4.0.jar
+          sudo mv apktool_2.4.0.jar /usr/local/bin/apktool.jar
 
       - name: Get APK file
         run: |
@@ -58,7 +59,7 @@ jobs:
 
       - name: Rebuild APK (skip resources)
         run: |
-          # --no-res działa w apktool 2.x – pomija kompilację zasobów
+          # --no-res działa w apktool 2.4.0
           apktool b decompiled -o unsigned.apk --no-res
 
       - name: Install apksigner (Android build tools)
