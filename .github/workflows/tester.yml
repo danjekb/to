@@ -61,10 +61,9 @@ jobs:
           patch -p1 --dry-run < ../0001-apply-sub-override.patch
           patch -p1 < ../0001-apply-sub-override.patch
 
-      - name: Download smali/baksmali
+      - name: Download smali
         run: |
           wget https://github.com/baksmali/smali/releases/download/3.0.9/smali-3.0.9.jar
-          wget https://github.com/baksmali/smali/releases/download/3.0.9/smali-baksmali-3.0.9.jar
 
       - name: Recompile changed smali to dex and replace in APK contents
         run: |
@@ -73,16 +72,12 @@ jobs:
               if [ "$smali_dir" = "decompiled/smali" ]; then
                 dex_name="classes.dex"
               else
-                num=$(echo "$smali_dir" | sed 's/.*smali_?//')
+                num=$(echo "$smali_dir" | sed 's/.*smali_//')
                 dex_name="classes${num}.dex"
               fi
               echo "Compiling $smali_dir -> $dex_name"
-              java -jar smali-3.0.9.jar assemble "$smali_dir" -o "$dex_name"
-              if [ -f "apk_contents/$dex_name" ]; then
-                cp "$dex_name" "apk_contents/$dex_name"
-              else
-                cp "$dex_name" "apk_contents/$dex_name"
-              fi
+              java -cp smali-3.0.9.jar org.jf.smali.Main assemble "$smali_dir" -o "$dex_name"
+              cp "$dex_name" "apk_contents/$dex_name"
             fi
           done
 
