@@ -58,7 +58,8 @@ jobs:
 
       - name: Rebuild APK (skip resources)
         run: |
-          apktool b decompiled -o unsigned.apk --use-aapt2 --no-res
+          # Usunięto --use-aapt2 – opcja nie istnieje w apktool 3.0.2
+          apktool b decompiled -o unsigned.apk --no-res
 
       - name: Install apksigner (Android build tools)
         run: |
