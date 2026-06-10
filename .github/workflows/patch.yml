@@ -1,14 +1,14 @@
-name: Apply smali patch to APK
+name: Apply smali patch to APK (skip resources)
 
 on:
   workflow_dispatch:
     inputs:
       apk_url:
-        description: 'URL do pliku APK (lub pozostaw pusty, jeśli APK jest w repozytorium)'
+        description: 'URL do pliku APK (jeśli podany, APK z repozytorium jest ignorowany)'
         required: false
         default: ''
       apk_path:
-        description: 'Ścieżka do APK w repozytorium (jeśli URL pusty)'
+        description: 'Ścieżka do APK w repozytorium (używana gdy URL jest pusty)'
         required: false
         default: 'app/original.apk'
 
@@ -30,14 +30,16 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget unzip patch
 
-      - name: Download apktool
+      - name: Download latest apktool
         run: |
+          # Pobierz skrypt apktool
           wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
           chmod +x apktool
-          sudo mv apktool /usr/local/bin
-          # Pobierz najnowszy jar apktool
-          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.11.0/apktool_2.11.0.jar
-          sudo mv apktool_2.11.0.jar /usr/local/bin/apktool.jar
+          sudo mv apktool /usr/local/bin/
+          # Pobierz najnowsze JAR (sprawdź najnowszą wersję na GitHub releases)
+          LATEST_VERSION=$(curl -s https://api.github.com/repos/iBotPeaches/Apktool/releases/latest | grep -Po '"tag_name": "\K[^"]*')
+          wget "https://github.com/iBotPeaches/Apktool/releases/download/${LATEST_VERSION}/apktool_${LATEST_VERSION}.jar"
+          sudo mv "apktool_${LATEST_VERSION}.jar" /usr/local/bin/apktool.jar
 
       - name: Get APK file
         run: |
@@ -49,30 +51,32 @@ jobs:
 
       - name: Decompile APK
         run: |
-          apktool d input.apk -o decompiled
+          apktool d input.apk -o decompiled --only-main-classes  # opcjonalnie dla dużych APK
 
-      - name: Apply patch
+      - name: Apply smali patch
         run: |
           cd decompiled
-          # Sprawdź, czy łatka się aplikuje (ścieżka względem katalogu decompiled)
+          # Dry-run do weryfikacji
           patch -p1 --dry-run < ../0001-apply-sub-override.patch
+          # Faktyczna aplikacja
           patch -p1 < ../0001-apply-sub-override.patch
 
-      - name: Rebuild APK
+      - name: Rebuild APK (skip resources rebuild)
         run: |
-          apktool b decompiled -o unsigned.apk
+          # Pomijamy kompilację zasobów – zachowujemy oryginalne resources.arsc
+          apktool b decompiled -o unsigned.apk --use-aapt2 --no-res
 
       - name: Set up signing (keystore)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           echo "$KEYSTORE_BASE64" | base64 --decode > keystore.jks
 
       - name: Sign APK
         run: |
+          # Instalujemy apksigner (część Android SDK Command Line Tools)
+          sudo apt-get install -y google-android-build-tools-installer
+          # Lub użyjemy dostępnego przez PATH
           apksigner sign --ks keystore.jks \
             --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
             --key-pass pass:${{ secrets.KEY_PASSWORD }} \
