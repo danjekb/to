@@ -1,0 +1,40 @@
+From 8eece78ca1c9c3e03aa967a5df77f0998f1c4252 Mon Sep 17 00:00:00 2001
+From: unknown <unknown@unknown.com>
+Date: Sat, 21 Feb 2026 04:30:44 +0530
+Subject: [PATCH] apply sub override
+
+Signed-off-by: unknown <unknown@unknown.com>
+---
+ .../module/subscription/SubscriptionManager.smali  | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/smali_classes19/com/primemods/module/subscription/SubscriptionManager.smali b/smali_classes19/com/primemods/module/subscription/SubscriptionManager.smali
+index 7348bf6..94b7c64 100644
+--- a/smali_classes19/com/primemods/module/subscription/SubscriptionManager.smali
++++ b/smali_classes19/com/primemods/module/subscription/SubscriptionManager.smali
+@@ -40,10 +40,20 @@
+     return-void
+ .end method
+ 
+-.method public static native A36()Z
++.method public static A36()Z
++    .locals 1
++
++    const/4 v0, 0x0
++
++    return v0
+ .end method
+ 
+-.method public static native A38(Landroid/content/Context;)Z
++.method public static A38(Landroid/content/Context;)Z
++    .locals 1
++
++    const/4 v0, 0x1
++
++    return v0
+ .end method
+ 
+ .method private static native A40()Z
+-- 
+2.53.0.windows.1
+
