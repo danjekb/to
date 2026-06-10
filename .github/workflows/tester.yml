@@ -1,0 +1,115 @@
+name: Apply smali patch (no resources rebuild)
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'URL do pliku APK'
+        required: true
+        default: ''
+      apk_path:
+        description: 'Ścieżka do APK w repozytorium (jeśli URL pusty)'
+        required: false
+        default: 'app/original.apk'
+
+jobs:
+  patch-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip zip
+
+      - name: Get APK file
+        run: |
+          if [ -n "${{ github.event.inputs.apk_url }}" ]; then
+            wget -O input.apk "${{ github.event.inputs.apk_url }}"
+          else
+            cp "${{ github.event.inputs.apk_path }}" input.apk
+          fi
+
+      - name: Extract APK (unzip)
+        run: |
+          mkdir apk_contents
+          unzip input.apk -d apk_contents
+
+      - name: Download apktool (only for disassembly)
+        run: |
+          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
+          chmod +x apktool
+          sudo mv apktool /usr/local/bin/
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.12.1/apktool_2.12.1.jar
+          sudo mv apktool_2.12.1.jar /usr/local/bin/apktool.jar
+
+      - name: Decompile APK (to get smali)
+        run: |
+          apktool d input.apk -o decompiled
+
+      - name: Apply smali patch
+        run: |
+          cd decompiled
+          patch -p1 --dry-run < ../0001-apply-sub-override.patch
+          patch -p1 < ../0001-apply-sub-override.patch
+
+      - name: Download smali/baksmali jar
+        run: |
+          wget https://github.com/google/smali/releases/download/v3.0.9/smali-3.0.9.jar
+          wget https://github.com/google/smali/releases/download/v3.0.9/baksmali-3.0.9.jar
+
+      - name: Recompile only smali to dex
+        run: |
+          # Dla każdego folderu smali* (smali, smali_classes2, itd.) kompilujemy osobno
+          for smali_dir in decompiled/smali*; do
+            if [ -d "$smali_dir" ]; then
+              out_dex="classes$(echo $smali_dir | sed 's/.*smali_?//').dex"
+              [ "$smali_dir" = "decompiled/smali" ] && out_dex="classes.dex"
+              echo "Compiling $smali_dir to $out_dex"
+              java -jar smali-3.0.9.jar assemble "$smali_dir" -o "$out_dex"
+              # Zastąp plik w rozpakowanym APK
+              if [ -f "apk_contents/$out_dex" ]; then
+                cp "$out_dex" "apk_contents/$out_dex"
+              else
+                # Jeśli dex nie istniał (nowy), po prostu dodajemy
+                cp "$out_dex" "apk_contents/$out_dex"
+              fi
+            fi
+          done
+
+      - name: Zip new APK (unsigned)
+        run: |
+          cd apk_contents
+          zip -r ../unsigned.apk .
+
+      - name: Install apksigner
+        run: |
+          sudo apt-get install -y google-android-build-tools-installer
+
+      - name: Set up keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > keystore.jks
+
+      - name: Sign APK
+        run: |
+          apksigner sign --ks keystore.jks \
+            --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
+            --key-pass pass:${{ secrets.KEY_PASSWORD }} \
+            --ks-key-alias ${{ secrets.KEY_ALIAS }} \
+            unsigned.apk --out modified.apk
+
+      - name: Upload modified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: modified-app
+          path: modified.apk
