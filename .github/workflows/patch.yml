@@ -1,0 +1,86 @@
+name: Apply smali patch to APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'URL do pliku APK (lub pozostaw pusty, jeśli APK jest w repozytorium)'
+        required: false
+        default: ''
+      apk_path:
+        description: 'Ścieżka do APK w repozytorium (jeśli URL pusty)'
+        required: false
+        default: 'app/original.apk'
+
+jobs:
+  patch-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip patch
+
+      - name: Download apktool
+        run: |
+          wget https://raw.githubusercontent.com/iBotPeaches/Apktool/master/scripts/linux/apktool
+          chmod +x apktool
+          sudo mv apktool /usr/local/bin
+          # Pobierz najnowszy jar apktool
+          wget https://github.com/iBotPeaches/Apktool/releases/download/v2.11.0/apktool_2.11.0.jar
+          sudo mv apktool_2.11.0.jar /usr/local/bin/apktool.jar
+
+      - name: Get APK file
+        run: |
+          if [ -n "${{ github.event.inputs.apk_url }}" ]; then
+            wget -O input.apk "${{ github.event.inputs.apk_url }}"
+          else
+            cp "${{ github.event.inputs.apk_path }}" input.apk
+          fi
+
+      - name: Decompile APK
+        run: |
+          apktool d input.apk -o decompiled
+
+      - name: Apply patch
+        run: |
+          cd decompiled
+          # Sprawdź, czy łatka się aplikuje (ścieżka względem katalogu decompiled)
+          patch -p1 --dry-run < ../0001-apply-sub-override.patch
+          patch -p1 < ../0001-apply-sub-override.patch
+
+      - name: Rebuild APK
+        run: |
+          apktool b decompiled -o unsigned.apk
+
+      - name: Set up signing (keystore)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > keystore.jks
+
+      - name: Sign APK
+        run: |
+          apksigner sign --ks keystore.jks \
+            --ks-pass pass:${{ secrets.KEYSTORE_PASSWORD }} \
+            --key-pass pass:${{ secrets.KEY_PASSWORD }} \
+            --ks-key-alias ${{ secrets.KEY_ALIAS }} \
+            unsigned.apk --out modified.apk
+
+      - name: Upload modified APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: modified-app
+          path: modified.apk
