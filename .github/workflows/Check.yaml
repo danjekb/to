@@ -1,0 +1,75 @@
+name: Check Vendor Boot Filesystem
+
+on:
+  workflow_dispatch:
+    inputs:
+      download_url:
+        description: 'Wklej bezpośredni link do pliku vendor_boot.img'
+        required: true
+        type: string
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cpio python3 curl
+
+    - name: Download and Setup AIK
+      run: |
+        mkdir AIK
+        cd AIK
+        # Pobieramy skrypty AIK
+        git clone https://github.com/SebaUbuntu/AIK-Linux-Mirror.git .
+        chmod +x *.sh
+        
+        echo "Pobieram plik z: ${{ github.event.inputs.download_url }}"
+        curl -L -o vendor_boot.img "${{ github.event.inputs.download_url }}"
+        
+        if [ ! -s "vendor_boot.img" ]; then
+          echo "BŁĄD: Plik jest pusty!"
+          exit 1
+        fi
+
+    - name: Unpack Vendor Boot Image
+      run: |
+        cd AIK
+        ./unpackimg.sh vendor_boot.img
+
+    - name: Check FSTAB Filesystem
+      run: |
+        cd AIK
+        
+        # Wykrywamy gdzie jest ramdisk
+        if [ -d "ramdisk" ]; then
+          TARGET_DIR="ramdisk"
+        elif [ -d "ramdisk-recovery" ]; then
+          TARGET_DIR="ramdisk-recovery"
+        else
+          echo "BŁĄD: Nie znaleziono folderu ramdisku!" > ../filesystem_check.txt
+          exit 1
+        fi
+        
+        echo "Szukam fstab w: $TARGET_DIR"
+        FSTAB_FILE=$(find "$TARGET_DIR" -name "fstab.*" | head -n 1)
+        [ -z "$FSTAB_FILE" ] && FSTAB_FILE=$(find "$TARGET_DIR" -name "fstab" | head -n 1)
+        
+        if [ ! -z "$FSTAB_FILE" ]; then
+          echo "Znaleziono plik: $FSTAB_FILE" > ../filesystem_check.txt
+          echo "--- ZAWARTOŚĆ PLIKU (TYLKO ODCZYT) ---" >> ../filesystem_check.txt
+          cat "$FSTAB_FILE" >> ../filesystem_check.txt
+        else
+          echo "BŁĄD: Nie znaleziono pliku fstab!" > ../filesystem_check.txt
+        fi
+
+    - name: Upload Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: filesystem-report
+        path: filesystem_check.txt
